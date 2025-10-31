@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.Environment
 import android.text.Html
 import android.text.method.LinkMovementMethod
+import android.view.inputmethod.InputMethodManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -51,6 +52,7 @@ import com.ysdigi.puratrip.models.Photo
 import com.ysdigi.puratrip.models.Settlement
 import java.io.File
 import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -119,9 +121,26 @@ fun TripDetailsScreen(viewModel: TripDetailsViewModel, tripId: String, userEmail
         Column(modifier = Modifier.padding(paddingValues)) {
             TabRow(selectedTabIndex = tabIndex) {
                 tabs.forEachIndexed { index, title ->
-                    Tab(text = { Text(title) },
+                    val icon = when (index) {
+                        0 -> Icons.Default.Photo
+                        1 -> Icons.Default.List
+                        2 -> Icons.Default.Paid
+                        else -> Icons.Default.Help
+                    }
+                    Tab(
                         selected = tabIndex == index,
-                        onClick = { tabIndex = index })
+                        onClick = { tabIndex = index },
+                        content = {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                            ) {
+                                Icon(icon, contentDescription = null)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(title)
+                            }
+                        }
+                    )
                 }
             }
             when (tabIndex) {
@@ -231,6 +250,11 @@ fun ManageUsersDialog(
     onRemoveUser: (String) -> Unit
 ) {
     var userEmail by remember { mutableStateOf("") }
+    var isEmailValid by remember { mutableStateOf(true) }
+
+    fun validateEmail(email: String) {
+        isEmailValid = android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -240,17 +264,30 @@ fun ManageUsersDialog(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     OutlinedTextField(
                         value = userEmail,
-                        onValueChange = { userEmail = it },
+                        onValueChange = {
+                            userEmail = it
+                            validateEmail(it)
+                        },
                         label = { Text("User Email") },
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
+                        isError = !isEmailValid,
+                        supportingText = {
+                            if (!isEmailValid) {
+                                Text("Invalid email format")
+                            }
+                        }
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    IconButton(onClick = {
-                        if (userEmail.isNotBlank() && android.util.Patterns.EMAIL_ADDRESS.matcher(userEmail).matches()) {
-                            onAddUser(userEmail)
-                            userEmail = ""
-                        }
-                    }) {
+                    IconButton(
+                        onClick = {
+                            if (userEmail.isNotBlank() && isEmailValid) {
+                                onAddUser(userEmail)
+                                userEmail = ""
+                                isEmailValid = true
+                            }
+                        },
+                        enabled = userEmail.isNotBlank() && isEmailValid
+                    ) {
                         Icon(Icons.Default.Add, contentDescription = "Add User")
                     }
                 }
@@ -484,6 +521,12 @@ fun PlanScreen(
                 .replace("\"", "\\\"")
                 .replace("\n", "\\n")
             webView.evaluateJavascript("setContent(\"$escapedPlan\");", null)
+            webView.post {
+                webView.requestFocus()
+                val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                imm.showSoftInput(webView, InputMethodManager.SHOW_IMPLICIT)
+                webView.evaluateJavascript("focusEditor();", null)
+            }
         }
     }
 
@@ -601,7 +644,7 @@ fun PlanScreen(
                                     if (document.queryCommandState('underline')) styles.push('underline');
 
                                     var highlightColor = document.queryCommandValue('hiliteColor');
-                                    if (highlightColor && highlightColor.toLowerCase() !== 'transparent' && highlightColor !== 'rgba(0, 0, 0, 0)') {
+                                    if (highlightColor && highlightColor.toLowerCase() !== 'transparent' && highlight.toLowerCase() !== 'rgba(0, 0, 0, 0)') {
                                         styles.push('highlight');
                                     }
                                     Android.updateStyle(styles.join(','));
@@ -619,6 +662,16 @@ fun PlanScreen(
 
                                 function getContent() {
                                     return editor.innerHTML;
+                                }
+
+                                function focusEditor() {
+                                    editor.focus();
+                                    var range = document.createRange();
+                                    range.selectNodeContents(editor);
+                                    range.collapse(false);
+                                    var sel = window.getSelection();
+                                    sel.removeAllRanges();
+                                    sel.addRange(range);
                                 }
                             </script>
                         </body>
@@ -712,6 +765,8 @@ fun PlanScreen(
 
 @Composable
 fun PaymentsScreen(uiState: TripDetailsUiState, onDeleteExpense: (String) -> Unit) {
+    var selectedExpense by remember { mutableStateOf<Expense?>(null) }
+
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         BalanceSummary(uiState.balances)
         Spacer(modifier = Modifier.height(16.dp))
@@ -722,9 +777,13 @@ fun PaymentsScreen(uiState: TripDetailsUiState, onDeleteExpense: (String) -> Uni
         Text("Expenses", style = MaterialTheme.typography.titleMedium)
         LazyColumn(modifier = Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(uiState.expenses) {
-                ExpenseItem(it, onDeleteExpense)
+                ExpenseItem(it, onDeleteExpense, onExpenseClick = { selectedExpense = it })
             }
         }
+    }
+
+    selectedExpense?.let {
+        ExpenseDetailsDialog(expense = it, onDismiss = { selectedExpense = null })
     }
 }
 
@@ -784,8 +843,13 @@ fun BalanceSummary(balances: Map<String, Double>) {
 }
 
 @Composable
-fun ExpenseItem(expense: Expense, onDeleteExpense: (String) -> Unit) {
-    Card(elevation = CardDefaults.cardElevation(2.dp), modifier = Modifier.fillMaxWidth()) {
+fun ExpenseItem(expense: Expense, onDeleteExpense: (String) -> Unit, onExpenseClick: (Expense) -> Unit) {
+    Card(
+        elevation = CardDefaults.cardElevation(2.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onExpenseClick(expense) }
+    ) {
         Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(expense.description, fontWeight = FontWeight.Bold)
@@ -797,6 +861,31 @@ fun ExpenseItem(expense: Expense, onDeleteExpense: (String) -> Unit) {
             }
         }
     }
+}
+
+@Composable
+fun ExpenseDetailsDialog(expense: Expense, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(expense.description) },
+        text = {
+            Column {
+                Text("Amount: ${expense.amount}")
+                Text("Paid by: ${expense.paidBy}")
+                Text("Added on: ${SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(expense.timestamp as Date)}")
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("Split with:", fontWeight = FontWeight.Bold)
+                expense.splitWith.forEach {
+                    Text(it)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("OK")
+            }
+        }
+    )
 }
 
 @Composable
@@ -908,7 +997,8 @@ fun AddExpenseDialog(users: List<String>, onDismiss: () -> Unit, onAddExpense: (
                     amount = amount.toDoubleOrNull() ?: 0.0,
                     description = description,
                     paidBy = paidBy,
-                    splitWith = splitWith
+                    splitWith = splitWith,
+                    timestamp = Date()
                 )
                 onAddExpense(expense)
             }) {
