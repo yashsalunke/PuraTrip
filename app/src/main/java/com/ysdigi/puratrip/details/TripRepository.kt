@@ -97,12 +97,12 @@ class TripRepository {
         }
     }
 
-    suspend fun uploadImageAndAddPhoto(tripId: String, imageUri: Uri, uploadedBy: String) {
+    suspend fun uploadImageAndAddPhoto(tripId: String, imageUri: Uri, uploadedBy: String, size: Long) {
         val fileName = "${UUID.randomUUID()}.jpg"
         val storageRef = storage.reference.child("trips/$tripId/$fileName")
         storageRef.putFile(imageUri).await()
         val downloadUrl = storageRef.downloadUrl.await().toString()
-        val photo = Photo(url = downloadUrl, uploadedBy = uploadedBy)
+        val photo = Photo(url = downloadUrl, uploadedBy = uploadedBy, size = size)
         db.collection("trips").document(tripId).collection("photos").add(photo).await()
         db.collection("trips").document(tripId).update("photoCount", FieldValue.increment(1)).await()
     }

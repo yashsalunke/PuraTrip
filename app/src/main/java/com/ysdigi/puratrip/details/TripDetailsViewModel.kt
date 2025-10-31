@@ -1,13 +1,16 @@
 package com.ysdigi.puratrip.details
 
+import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ysdigi.puratrip.models.Expense
+import com.ysdigi.puratrip.models.Settlement
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import java.io.InputStream
 
 class TripDetailsViewModel : ViewModel() {
 
@@ -130,12 +133,13 @@ class TripDetailsViewModel : ViewModel() {
         }
     }
 
-    fun uploadImagesAndAddPhotos(tripId: String, imageUris: List<Uri>, uploadedBy: String) {
+    fun uploadImagesAndAddPhotos(tripId: String, imageUris: List<Uri>, uploadedBy: String, context: Context) {
         viewModelScope.launch {
             _uploadProgress.value = UploadProgress(0, imageUris.size)
             try {
                 imageUris.forEachIndexed { index, uri ->
-                    repository.uploadImageAndAddPhoto(tripId, uri, uploadedBy)
+                    val size = context.contentResolver.openInputStream(uri)?.use { it.available().toLong() } ?: 0L
+                    repository.uploadImageAndAddPhoto(tripId, uri, uploadedBy, size)
                     _uploadProgress.value = UploadProgress(index + 1, imageUris.size)
                 }
             } finally {

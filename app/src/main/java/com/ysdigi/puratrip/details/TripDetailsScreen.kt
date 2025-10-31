@@ -3,18 +3,27 @@ package com.ysdigi.puratrip.details
 import android.Manifest
 import android.app.DownloadManager
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
+import android.text.Html
+import android.text.method.LinkMovementMethod
+import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.TextView
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
@@ -28,13 +37,21 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.FileProvider
+import coil.ImageLoader
 import coil.compose.AsyncImage
+import coil.decode.GifDecoder
+import coil.decode.ImageDecoderDecoder
+import coil.decode.VideoFrameDecoder
 import com.ysdigi.puratrip.models.Expense
 import com.ysdigi.puratrip.models.Photo
+import com.ysdigi.puratrip.models.Settlement
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -47,6 +64,9 @@ fun TripDetailsScreen(viewModel: TripDetailsViewModel, tripId: String, userEmail
     var showAddPhotoDialog by remember { mutableStateOf(false) }
     var showAddExpenseDialog by remember { mutableStateOf(false) }
     var showManageUsersDialog by remember { mutableStateOf(false) }
+
+    // State for PlanScreen edit mode
+    var isPlanEditMode by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -79,15 +99,19 @@ fun TripDetailsScreen(viewModel: TripDetailsViewModel, tripId: String, userEmail
             }
         },
         floatingActionButton = {
-            if ((tabIndex == 0 || tabIndex == 2) && selectedPhotos.isEmpty()) { // Photos or Payments
-                FloatingActionButton(onClick = {
-                    if (tabIndex == 0) {
-                        showAddPhotoDialog = true
-                    } else {
-                        showAddExpenseDialog = true
+            if (selectedPhotos.isEmpty()) {
+                when (tabIndex) {
+                    0 -> FloatingActionButton(onClick = { showAddPhotoDialog = true }) {
+                        Icon(Icons.Default.Add, contentDescription = "Add Photo")
                     }
-                }) {
-                    Icon(Icons.Default.Add, contentDescription = "Add")
+                    1 -> if (!isPlanEditMode) {
+                        FloatingActionButton(onClick = { isPlanEditMode = true }) {
+                            Icon(Icons.Default.Edit, contentDescription = "Edit Plan")
+                        }
+                    }
+                    2 -> FloatingActionButton(onClick = { showAddExpenseDialog = true }) {
+                        Icon(Icons.Default.Add, contentDescription = "Add Expense")
+                    }
                 }
             }
         }
@@ -108,7 +132,9 @@ fun TripDetailsScreen(viewModel: TripDetailsViewModel, tripId: String, userEmail
                 )
                 1 -> PlanScreen(
                     plan = uiState.trip?.plan ?: "",
-                    onPlanChanged = { newPlan -> viewModel.updatePlan(tripId, newPlan) }
+                    onPlanChanged = { newPlan -> viewModel.updatePlan(tripId, newPlan) },
+                    isEditMode = isPlanEditMode,
+                    onEditModeChanged = { isPlanEditMode = it }
                 )
                 2 -> PaymentsScreen(
                     uiState = uiState,
@@ -119,10 +145,11 @@ fun TripDetailsScreen(viewModel: TripDetailsViewModel, tripId: String, userEmail
     }
 
     if (showAddPhotoDialog) {
+        val context = LocalContext.current
         AddPhotoDialog(
             onDismiss = { showAddPhotoDialog = false },
             onAddPhotos = { imageUris ->
-                viewModel.uploadImagesAndAddPhotos(tripId, imageUris, userEmail)
+                viewModel.uploadImagesAndAddPhotos(tripId, imageUris, userEmail, context)
                 showAddPhotoDialog = false
             }
         )
@@ -248,31 +275,115 @@ fun ManageUsersDialog(
     )
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun PhotosScreen(photos: List<Photo>, selectedPhotos: Set<String>, onPhotoClick: (Photo) -> Unit) {
-    LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = 128.dp),
-        modifier = Modifier.padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        items(photos) { photo ->
-            Box(modifier = Modifier.clickable { onPhotoClick(photo) }) {
-                AsyncImage(
-                    model = photo.url,
-                    contentDescription = "Photo by ${photo.uploadedBy}",
-                    modifier = Modifier.aspectRatio(1f),
-                    contentScale = ContentScale.Crop
-                )
-                if (selectedPhotos.contains(photo.id)) {
-                    Box(modifier = Modifier.matchParentSize().align(Alignment.Center)) {
-                        Icon(
-                            Icons.Default.CheckCircle,
-                            contentDescription = "Selected",
-                            tint = Color.White,
-                            modifier = Modifier.align(Alignment.Center)
+    val context = LocalContext.current
+    var sortBy by remember { mutableStateOf("Date") }
+    var sortDescending by remember { mutableStateOf(true) }
+    var groupByDate by remember { mutableStateOf(false) }
+
+    val imageLoader = remember(context) {
+        ImageLoader.Builder(context)
+            .components {
+                if (Build.VERSION.SDK_INT >= 28) {
+                    add(ImageDecoderDecoder.Factory())
+                } else {
+                    add(GifDecoder.Factory())
+                }
+                add(VideoFrameDecoder.Factory())
+            }
+            .build()
+    }
+
+    val sortedPhotos = remember(photos, sortBy, sortDescending) {
+        val comparator = when (sortBy) {
+            "Size" -> compareBy<Photo> { it.size }
+            "Uploaded By" -> compareBy<Photo> { it.uploadedBy }
+            else -> compareBy<Photo> { it.uploadedAt }
+        }
+        if (sortDescending) photos.sortedWith(comparator.reversed()) else photos.sortedWith(comparator)
+    }
+
+    val groupedPhotos = remember(sortedPhotos, groupByDate) {
+        if (groupByDate) {
+            sortedPhotos.groupBy {
+                val sdf = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+                sdf.format(it.uploadedAt)
+            }
+        } else {
+            emptyMap()
+        }
+    }
+
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            var expanded by remember { mutableStateOf(false) }
+            Box {
+                TextButton(onClick = { expanded = true }) {
+                    Text(text = "Sort by: $sortBy")
+                }
+                DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                    listOf("Date", "Size", "Uploaded By").forEach {
+                        DropdownMenuItem(text = { Text(it) }, onClick = {
+                            sortBy = it
+                            expanded = false
+                        })
+                    }
+                }
+            }
+
+            IconButton(onClick = { sortDescending = !sortDescending }) {
+                Icon(if (sortDescending) Icons.Default.ArrowDownward else Icons.Default.ArrowUpward, contentDescription = "Sort Order")
+            }
+
+            TextButton(onClick = { groupByDate = !groupByDate }) {
+                Text(if (groupByDate) "Ungroup" else "Group by Date")
+            }
+
+            TextButton(onClick = {
+                sortBy = "Date"
+                sortDescending = true
+                groupByDate = false
+            }) {
+                Text("Clear")
+            }
+        }
+
+        if (groupByDate) {
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = 128.dp),
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                groupedPhotos.forEach { (date, photosInGroup) ->
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        Text(
+                            text = date,
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.padding(bottom = 8.dp)
                         )
                     }
+                    items(photosInGroup) { photo ->
+                        PhotoItem(photo, selectedPhotos, onPhotoClick, imageLoader)
+                    }
+                }
+            }
+        } else {
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = 128.dp),
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(sortedPhotos) { photo ->
+                    PhotoItem(photo, selectedPhotos, onPhotoClick, imageLoader)
                 }
             }
         }
@@ -280,78 +391,191 @@ fun PhotosScreen(photos: List<Photo>, selectedPhotos: Set<String>, onPhotoClick:
 }
 
 @Composable
-fun PlanScreen(plan: String, onPlanChanged: (String) -> Unit) {
+fun PhotoItem(photo: Photo, selectedPhotos: Set<String>, onPhotoClick: (Photo) -> Unit, imageLoader: ImageLoader) {
+    Box(modifier = Modifier.clickable { onPhotoClick(photo) }) {
+        AsyncImage(
+            model = photo.url,
+            contentDescription = "Photo by ${photo.uploadedBy}",
+            imageLoader = imageLoader,
+            modifier = Modifier.aspectRatio(1f),
+            contentScale = ContentScale.Crop
+        )
+        if (selectedPhotos.contains(photo.id)) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(Color.Black.copy(alpha = 0.5f))
+            ) {
+                Icon(
+                    Icons.Default.CheckCircle,
+                    contentDescription = "Selected",
+                    tint = Color.White,
+                    modifier = Modifier.align(Alignment.Center)
+                )
+            }
+        }
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .background(Color.Black.copy(alpha = 0.5f))
+                .padding(4.dp)
+        ) {
+            if (photo.uploadedBy.isNotEmpty()) {
+                Text(
+                    text = "Uploaded by: ${photo.uploadedBy}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.White
+                )
+            }
+            Text(
+                text = "Date: ${SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(photo.uploadedAt)}",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White
+            )
+            val sizeInKb = photo.size / 1024
+            val sizeText = if (sizeInKb > 1024) {
+                val sizeInMb = sizeInKb / 1024f
+                "%.2f MB".format(sizeInMb)
+            } else {
+                "$sizeInKb KB"
+            }
+            Text(
+                text = "Size: $sizeText",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White
+            )
+        }
+    }
+}
+
+class WebAppInterface(private val onStylesChanged: (Set<String>) -> Unit) {
+    @JavascriptInterface
+    fun updateStyle(styles: String) {
+        // styles will be a comma separated string e.g., "bold,italic"
+        onStylesChanged(styles.split(',').filter { it.isNotBlank() }.toSet())
+    }
+}
+
+@Composable
+fun PlanScreen(
+    plan: String,
+    onPlanChanged: (String) -> Unit,
+    isEditMode: Boolean,
+    onEditModeChanged: (Boolean) -> Unit
+) {
     val context = LocalContext.current
     var showLinkDialog by remember { mutableStateOf(false) }
+    var activeStyles by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var displayedPlan by remember { mutableStateOf(plan) }
 
-    val webView = remember {
+    val webView = remember(context) {
         WebView(context).apply {
             settings.javaScriptEnabled = true
         }
     }
 
-    Column(modifier = Modifier.padding(16.dp)) {
-        // --- Toolbar ---
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            IconButton(onClick = { webView.evaluateJavascript("execCmd('bold');", null) }) {
-                Icon(Icons.Default.FormatBold, contentDescription = "Bold")
-            }
-            IconButton(onClick = { webView.evaluateJavascript("execCmd('italic');", null) }) {
-                Icon(Icons.Default.FormatItalic, contentDescription = "Italic")
-            }
-            IconButton(onClick = { webView.evaluateJavascript("execCmd('underline');", null) }) {
-                Icon(Icons.Default.FormatUnderlined, contentDescription = "Underline")
-            }
-            IconButton(onClick = { webView.evaluateJavascript("execCmd('hiliteColor', 'yellow');", null) }) {
-                Icon(Icons.Default.Highlight, contentDescription = "Highlight")
-            }
-            IconButton(onClick = { showLinkDialog = true }) {
-                Icon(Icons.Default.Link, contentDescription = "Hyperlink")
-            }
+    LaunchedEffect(plan) {
+        displayedPlan = plan
+    }
 
-            var expanded by remember { mutableStateOf(false) }
-            Box {
-                IconButton(onClick = { expanded = true }) {
-                    Icon(Icons.Default.FormatSize, contentDescription = "Font Size")
-                }
-                DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                    (1..7).forEach { size ->
-                        DropdownMenuItem(
-                            text = { Text("Size $size") },
-                            onClick = {
-                                webView.evaluateJavascript("execCmd('fontSize', '$size');", null)
-                                expanded = false
-                            }
-                        )
-                    }
-                }
-            }
-
-            IconButton(onClick = { webView.evaluateJavascript("execCmd('removeFormat');", null) }) {
-                Icon(Icons.Default.FormatClear, contentDescription = "Clear Formatting")
-            }
+    LaunchedEffect(isEditMode) {
+        if (isEditMode) {
+            val escapedPlan = displayedPlan
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+            webView.evaluateJavascript("setContent(\"$escapedPlan\");", null)
         }
+    }
 
-        // --- WebView editor ---
-        AndroidView(
-            factory = {
-                webView.apply {
-                    webViewClient = object : WebViewClient() {
-                        override fun onPageFinished(view: WebView?, url: String?) {
-                            super.onPageFinished(view, url)
-                            val escapedPlan = plan
-                                .replace("\"", "\\\"")
-                                .replace("\n", "\\n")
-                            view?.evaluateJavascript("setContent(\"$escapedPlan\");", null)
+    if (isEditMode) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            // --- Toolbar ---
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                val boldModifier = if (activeStyles.contains("bold")) Modifier.background(MaterialTheme.colorScheme.primaryContainer) else Modifier
+                val italicModifier = if (activeStyles.contains("italic")) Modifier.background(MaterialTheme.colorScheme.primaryContainer) else Modifier
+                val underlineModifier = if (activeStyles.contains("underline")) Modifier.background(MaterialTheme.colorScheme.primaryContainer) else Modifier
+                val highlightModifier = if (activeStyles.contains("highlight")) Modifier.background(MaterialTheme.colorScheme.primaryContainer) else Modifier
+
+                IconButton(onClick = { webView.evaluateJavascript("execCmd('bold');", null) }, modifier = boldModifier) {
+                    Icon(Icons.Default.FormatBold, contentDescription = "Bold")
+                }
+                IconButton(onClick = { webView.evaluateJavascript("execCmd('italic');", null) }, modifier = italicModifier) {
+                    Icon(Icons.Default.FormatItalic, contentDescription = "Italic")
+                }
+                IconButton(onClick = { webView.evaluateJavascript("execCmd('underline');", null) }, modifier = underlineModifier) {
+                    Icon(Icons.Default.FormatUnderlined, contentDescription = "Underline")
+                }
+                IconButton(
+                    onClick = {
+                        val command = if (activeStyles.contains("highlight")) {
+                            "execCmd('hiliteColor', 'transparent');"
+                        } else {
+                            "execCmd('hiliteColor', 'yellow');"
+                        }
+                        webView.evaluateJavascript(command, null)
+                    },
+                    modifier = highlightModifier
+                ) {
+                    Icon(Icons.Default.Highlight, contentDescription = "Highlight")
+                }
+                IconButton(onClick = { showLinkDialog = true }) {
+                    Icon(Icons.Default.Link, contentDescription = "Hyperlink")
+                }
+
+                var expanded by remember { mutableStateOf(false) }
+                Box {
+                    IconButton(onClick = { expanded = true }) {
+                        Icon(Icons.Default.FormatSize, contentDescription = "Font Size")
+                    }
+                    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                        (1..7).forEach { size ->
+                            DropdownMenuItem(
+                                text = { Text("Size $size") },
+                                onClick = {
+                                    webView.evaluateJavascript("execCmd('fontSize', '$size');", null)
+                                    expanded = false
+                                }
+                            )
                         }
                     }
+                }
 
-                    val editorHtml = """
+                IconButton(onClick = { webView.evaluateJavascript("execCmd('removeFormat');", null) }) {
+                    Icon(Icons.Default.FormatClear, contentDescription = "Clear Formatting")
+                }
+            }
+
+            // --- WebView editor ---
+            AndroidView(
+                factory = {
+                    webView.apply {
+                        addJavascriptInterface(WebAppInterface { activeStyles = it }, "Android")
+
+                        webViewClient = object : WebViewClient() {
+                            override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
+                                if (url != null) {
+                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                    context.startActivity(intent)
+                                    return true
+                                }
+                                return false
+                            }
+
+                            override fun onPageFinished(view: WebView?, url: String?) {
+                                super.onPageFinished(view, url)
+                                val escapedPlan = displayedPlan
+                                    .replace("\"", "\\\"")
+                                    .replace("\n", "\\n")
+                                view?.evaluateJavascript("setContent(\"$escapedPlan\");", null)
+                            }
+                        }
+
+                        val editorHtml = """
                         <!DOCTYPE html>
                         <html>
                         <head>
@@ -368,39 +592,23 @@ fun PlanScreen(plan: String, onPlanChanged: (String) -> Unit) {
                         <body>
                             <div id="editor" contenteditable="true"></div>
                             <script>
-                                var savedRange;
                                 var editor = document.getElementById('editor');
 
-                                editor.addEventListener('focus', function() {
-                                    restoreSelection();
-                                });
+                                document.addEventListener('selectionchange', function() {
+                                    var styles = [];
+                                    if (document.queryCommandState('bold')) styles.push('bold');
+                                    if (document.queryCommandState('italic')) styles.push('italic');
+                                    if (document.queryCommandState('underline')) styles.push('underline');
 
-                                editor.addEventListener('blur', function() {
-                                    saveSelection();
-                                });
-
-                                editor.addEventListener('mouseup', saveSelection);
-                                editor.addEventListener('keyup', saveSelection);
-
-                                function saveSelection() {
-                                    var sel = window.getSelection();
-                                    if (sel.rangeCount > 0) {
-                                        savedRange = sel.getRangeAt(0);
+                                    var highlightColor = document.queryCommandValue('hiliteColor');
+                                    if (highlightColor && highlightColor.toLowerCase() !== 'transparent' && highlightColor !== 'rgba(0, 0, 0, 0)') {
+                                        styles.push('highlight');
                                     }
-                                }
-
-                                function restoreSelection() {
-                                    var sel = window.getSelection();
-                                    if (savedRange) {
-                                        sel.removeAllRanges();
-                                        sel.addRange(savedRange);
-                                    }
-                                }
+                                    Android.updateStyle(styles.join(','));
+                                });
 
                                 function execCmd(command, value) {
-                                    restoreSelection();
                                     document.execCommand(command, false, value || null);
-                                    saveSelection();
                                 }
 
                                 function setContent(newContent) {
@@ -417,34 +625,59 @@ fun PlanScreen(plan: String, onPlanChanged: (String) -> Unit) {
                         </html>
                     """.trimIndent()
 
-                    loadDataWithBaseURL(null, editorHtml, "text/html", "UTF-8", null)
-                }
-            },
+                        loadDataWithBaseURL(null, editorHtml, "text/html", "UTF-8", null)
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .border(1.dp, MaterialTheme.colorScheme.outline)
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Button(
+                onClick = {
+                    webView.evaluateJavascript("getContent()") { html ->
+                        val cleanedHtml = html
+                            ?.removePrefix("\"")
+                            ?.removeSuffix("\"")
+                            ?.replace("\\u003C", "<")
+                            ?.replace("\\\"", "\"")
+                            ?.replace("\\n", "")
+                            ?.replace("\\r", "")
+                            ?.replace("\\\'", "'")
+                        if (cleanedHtml != null) {
+                            displayedPlan = cleanedHtml
+                            onPlanChanged(cleanedHtml)
+                        }
+                        onEditModeChanged(false)
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Save Plan")
+            }
+        }
+    } else {
+        Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-                .border(1.dp, MaterialTheme.colorScheme.outline)
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Button(
-            onClick = {
-                webView.evaluateJavascript("getContent()") { html ->
-                    val cleanedHtml = html
-                        ?.removePrefix("\"")
-                        ?.removeSuffix("\"")
-                        ?.replace("\\u003C", "<")
-                        ?.replace("\\\"", "\"")
-                        ?.replace("\\n", "")
-                        ?.replace("\\r", "")
-                        ?.replace("\\\'", "'")
-                    onPlanChanged(cleanedHtml ?: "")
-                }
-            },
-            modifier = Modifier.fillMaxWidth()
+                .fillMaxSize()
+                .padding(16.dp)
+                .clickable { onEditModeChanged(true) }
         ) {
-            Text("Save Plan")
+            AndroidView(
+                factory = {
+                    TextView(it).apply {
+                        text = Html.fromHtml(displayedPlan, Html.FROM_HTML_MODE_COMPACT)
+                        movementMethod = LinkMovementMethod.getInstance()
+                    }
+                },
+                update = {
+                    it.text = Html.fromHtml(displayedPlan, Html.FROM_HTML_MODE_COMPACT)
+                },
+                modifier = Modifier.fillMaxSize()
+            )
         }
     }
 
@@ -502,7 +735,35 @@ fun DebtsToSettle(settlements: List<Settlement>) {
             Text("Debts to Settle", style = MaterialTheme.typography.titleMedium)
             Spacer(modifier = Modifier.height(8.dp))
             settlements.forEach { settlement ->
-                Text("${settlement.from} owes ${settlement.to} %.2f".format(settlement.amount))
+                ListItem(
+                    headlineContent = {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = settlement.from,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.weight(1f),
+                                textAlign = TextAlign.End
+                            )
+                            Icon(
+                                Icons.Default.ArrowForward,
+                                contentDescription = "Owes",
+                                modifier = Modifier.padding(horizontal = 8.dp)
+                            )
+                            Text(
+                                text = settlement.to,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.weight(1f),
+                                textAlign = TextAlign.Start
+                            )
+                        }
+                    },
+                    trailingContent = {
+                        Text("%,.2f".format(settlement.amount), color = MaterialTheme.colorScheme.primary)
+                    }
+                )
             }
         }
     }
@@ -556,6 +817,7 @@ fun AddPhotoDialog(onDismiss: () -> Unit, onAddPhotos: (List<Uri>) -> Unit) {
         }
     }
 
+
     val permissionLauncher =
         rememberLauncherForActivityResult(contract = ActivityResultContracts.RequestPermission()) { isGranted: Boolean ->
             if (isGranted) {
@@ -570,7 +832,7 @@ fun AddPhotoDialog(onDismiss: () -> Unit, onAddPhotos: (List<Uri>) -> Unit) {
         title = { Text("Add Photo") },
         text = {
             Column {
-                Button(onClick = { galleryLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) {
+                Button(onClick = { galleryLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) }) {
                     Text("Select from Gallery")
                 }
                 Spacer(modifier = Modifier.height(8.dp))
@@ -588,7 +850,7 @@ fun AddPhotoDialog(onDismiss: () -> Unit, onAddPhotos: (List<Uri>) -> Unit) {
 }
 
 private fun createImageUri(context: Context): Uri {
-    val imageFile = File.createTempFile("JPEG_", ".jpg", context.getExternalFilesDir("Pictures"))
+    val imageFile = File.createTempFile("JPEG_", ".jpg", context.getExternalFilesDir(Environment.DIRECTORY_PICTURES))
     return FileProvider.getUriForFile(context, "com.ysdigi.puratrip.fileprovider", imageFile)
 }
 

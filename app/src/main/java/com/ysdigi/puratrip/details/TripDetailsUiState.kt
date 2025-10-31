@@ -3,6 +3,7 @@ package com.ysdigi.puratrip.details
 import com.ysdigi.puratrip.home.Trip
 import com.ysdigi.puratrip.models.Expense
 import com.ysdigi.puratrip.models.Photo
+import com.ysdigi.puratrip.models.Settlement
 
 data class TripDetailsUiState(
     val trip: Trip? = null,
