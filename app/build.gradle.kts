@@ -14,8 +14,8 @@ android {
         applicationId = "com.ysdigi.puratrip"
         minSdk = 24
         targetSdk = 36
-        versionCode = 3
-        versionName = "1-Stable-LTE"
+        versionCode = 4
+        versionName = "2-LTE"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
