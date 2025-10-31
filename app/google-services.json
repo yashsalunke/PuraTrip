@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "495005860711",
+    "project_id": "pura-trip-firebase",
+    "storage_bucket": "pura-trip-firebase.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:495005860711:android:cfc6288621bea9e9e1e5c2",
+        "android_client_info": {
+          "package_name": "com.ysdigi.puratrip"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDcvQw6VnO4Udm9fLCQCxNO8EdmAcX7HhQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
