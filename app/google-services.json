@@ -1,6 +1,7 @@
 {
   "project_info": {
     "project_number": "495005860711",
+    "firebase_url": "https://pura-trip-firebase-default-rtdb.firebaseio.com",
     "project_id": "pura-trip-firebase",
     "storage_bucket": "pura-trip-firebase.firebasestorage.app"
   },
@@ -12,7 +13,28 @@
           "package_name": "com.ysdigi.puratrip"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "495005860711-4js649p7e39l1gk5hpa7b5fi018hnoh9.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.ysdigi.puratrip",
+            "certificate_hash": "ff3c9954d17f4a2e1dbee10063b50d9b2e62025b"
+          }
+        },
+        {
+          "client_id": "495005860711-cv78gj537d06da4c00ujbcb3ogmft6nu.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.ysdigi.puratrip",
+            "certificate_hash": "6b572a4ee3e1b6054e39ac1a273ca2a7743903d3"
+          }
+        },
+        {
+          "client_id": "495005860711-3hb8g97a6c1pqu219d5rdf42nj32l4u0.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyDcvQw6VnO4Udm9fLCQCxNO8EdmAcX7HhQ"
@@ -20,7 +42,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "102396800652529997649",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

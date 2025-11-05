@@ -4,7 +4,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.firestore.ktx.firestore
-import com.google.firebase.firestore.ktx.toObjects
+import com.google.firebase.firestore.toObjects
 import com.google.firebase.ktx.Firebase
 import com.ysdigi.puratrip.models.Expense
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,6 +18,9 @@ class HomeViewModel : ViewModel() {
 
     private val _trips = MutableStateFlow<List<Trip>>(emptyList())
     val trips: StateFlow<List<Trip>> = _trips
+
+    private val _isLoading = MutableStateFlow(false)
+    val isLoading: StateFlow<Boolean> = _isLoading
 
     fun listenForTrips(email: String) {
         db.collection("trips").whereArrayContains("users", email)
@@ -69,6 +72,7 @@ class HomeViewModel : ViewModel() {
     }
 
     suspend fun addTrip(tripName: String, users: List<String>): Boolean {
+        _isLoading.value = true
         return try {
             val trip = Trip(
                 name = tripName,
@@ -83,6 +87,8 @@ class HomeViewModel : ViewModel() {
         } catch (e: Exception) {
             Log.e("HomeViewModel", "Error adding trip", e)
             false
+        } finally {
+            _isLoading.value = false
         }
     }
 }

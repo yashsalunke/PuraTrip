@@ -10,5 +10,6 @@ data class TripDetailsUiState(
     val photos: List<Photo> = emptyList(),
     val expenses: List<Expense> = emptyList(),
     val balances: Map<String, Double> = emptyMap(),
-    val settlements: List<Settlement> = emptyList()
+    val settlements: List<Settlement> = emptyList(),
+    val userNames: Map<String, String> = emptyMap()
 )

@@ -29,6 +29,9 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.Help
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -47,119 +50,146 @@ import coil.compose.AsyncImage
 import coil.decode.GifDecoder
 import coil.decode.ImageDecoderDecoder
 import coil.decode.VideoFrameDecoder
+import com.google.firebase.auth.ktx.auth
+import com.google.firebase.firestore.ktx.firestore
+import com.google.firebase.ktx.Firebase
 import com.ysdigi.puratrip.models.Expense
 import com.ysdigi.puratrip.models.Photo
 import com.ysdigi.puratrip.models.Settlement
+import com.ysdigi.puratrip.models.User
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.Currency
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TripDetailsScreen(viewModel: TripDetailsViewModel, tripId: String, userEmail: String) {
+fun TripDetailsScreen(viewModel: TripDetailsViewModel, tripId: String, userName: String) {
     var tabIndex by remember { mutableStateOf(0) }
     val tabs = listOf("Photos", "Plan", "Payments")
     val uiState by viewModel.uiState.collectAsState()
     val uploadProgress by viewModel.uploadProgress.collectAsState()
     val selectedPhotos by viewModel.selectedPhotos.collectAsState()
+    val isLoading by viewModel.isLoading.collectAsState()
     var showAddPhotoDialog by remember { mutableStateOf(false) }
     var showAddExpenseDialog by remember { mutableStateOf(false) }
     var showManageUsersDialog by remember { mutableStateOf(false) }
+    var userProfile by remember { mutableStateOf<User?>(null) }
 
     // State for PlanScreen edit mode
     var isPlanEditMode by remember { mutableStateOf(false) }
 
-    Scaffold(
-        topBar = {
-            if (selectedPhotos.isNotEmpty()) {
-                PhotosSelectionBar(viewModel, tripId, selectedPhotos.size)
-            } else {
-                Column {
-                    TopAppBar(
-                        title = { Text(uiState.trip?.name ?: "Trip Details") },
-                        actions = {
-                            IconButton(onClick = { showManageUsersDialog = true }) {
-                                Icon(Icons.Default.Group, contentDescription = "Manage Users")
+    LaunchedEffect(Unit) {
+        val user = Firebase.auth.currentUser
+        val db = Firebase.firestore
+        if (user != null) {
+            db.collection("users").document(user.uid).get()
+                .addOnSuccessListener { document ->
+                    if (document != null) {
+                        userProfile = document.toObject(User::class.java)
+                    }
+                }
+        }
+    }
+
+    Box {
+        Scaffold(
+            topBar = {
+                if (selectedPhotos.isNotEmpty()) {
+                    PhotosSelectionBar(viewModel, tripId, selectedPhotos.size)
+                } else {
+                    Column {
+                        TopAppBar(
+                            title = { Text(uiState.trip?.name ?: "Trip Details") },
+                            actions = {
+                                IconButton(onClick = { showManageUsersDialog = true }) {
+                                    Icon(Icons.Default.Group, contentDescription = "Manage Users")
+                                }
+                            }
+                        )
+                        uploadProgress?.let {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 16.dp)
+                            ) {
+                                LinearProgressIndicator(
+                                    progress = { it.uploaded.toFloat() / it.total.toFloat() },
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("${it.uploaded} / ${it.total}")
                             }
                         }
-                    )
-                    uploadProgress?.let {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 16.dp)
-                        ) {
-                            LinearProgressIndicator(
-                                progress = it.uploaded.toFloat() / it.total.toFloat(),
-                                modifier = Modifier.weight(1f)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("${it.uploaded} / ${it.total}")
+                    }
+                }
+            },
+            floatingActionButton = {
+                if (selectedPhotos.isEmpty()) {
+                    when (tabIndex) {
+                        0 -> FloatingActionButton(onClick = { showAddPhotoDialog = true }) {
+                            Icon(Icons.Default.Add, contentDescription = "Add Photo")
+                        }
+                        1 -> if (!isPlanEditMode) {
+                            FloatingActionButton(onClick = { isPlanEditMode = true }) {
+                                Icon(Icons.Default.Edit, contentDescription = "Edit Plan")
+                            }
+                        }
+                        2 -> FloatingActionButton(onClick = { showAddExpenseDialog = true }) {
+                            Icon(Icons.Default.Add, contentDescription = "Add Expense")
                         }
                     }
                 }
             }
-        },
-        floatingActionButton = {
-            if (selectedPhotos.isEmpty()) {
-                when (tabIndex) {
-                    0 -> FloatingActionButton(onClick = { showAddPhotoDialog = true }) {
-                        Icon(Icons.Default.Add, contentDescription = "Add Photo")
-                    }
-                    1 -> if (!isPlanEditMode) {
-                        FloatingActionButton(onClick = { isPlanEditMode = true }) {
-                            Icon(Icons.Default.Edit, contentDescription = "Edit Plan")
+        ) { paddingValues ->
+            Column(modifier = Modifier.padding(paddingValues)) {
+                TabRow(selectedTabIndex = tabIndex) {
+                    tabs.forEachIndexed { index, title ->
+                        val icon = when (index) {
+                            0 -> Icons.Default.Photo
+                            1 -> Icons.AutoMirrored.Filled.List
+                            2 -> Icons.Default.Paid
+                            else -> Icons.AutoMirrored.Filled.Help
                         }
+                        Tab(
+                            selected = tabIndex == index,
+                            onClick = { tabIndex = index },
+                            content = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                ) {
+                                    Icon(icon, contentDescription = null)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(title)
+                                }
+                            }
+                        )
                     }
-                    2 -> FloatingActionButton(onClick = { showAddExpenseDialog = true }) {
-                        Icon(Icons.Default.Add, contentDescription = "Add Expense")
-                    }
+                }
+                when (tabIndex) {
+                    0 -> PhotosScreen(
+                        photos = uiState.photos,
+                        selectedPhotos = selectedPhotos,
+                        onPhotoClick = { viewModel.togglePhotoSelection(it.id) },
+                    )
+                    1 -> PlanScreen(
+                        plan = uiState.trip?.plan ?: "",
+                        onPlanChanged = { newPlan -> viewModel.updatePlan(tripId, newPlan) },
+                        isEditMode = isPlanEditMode,
+                        onEditModeChanged = { isPlanEditMode = it }
+                    )
+                    2 -> PaymentsScreen(
+                        uiState = uiState,
+                        onDeleteExpense = { expenseId -> viewModel.deleteExpense(tripId, expenseId) },
+                        currency = userProfile?.currency ?: "USD"
+                    )
                 }
             }
         }
-    ) { paddingValues ->
-        Column(modifier = Modifier.padding(paddingValues)) {
-            TabRow(selectedTabIndex = tabIndex) {
-                tabs.forEachIndexed { index, title ->
-                    val icon = when (index) {
-                        0 -> Icons.Default.Photo
-                        1 -> Icons.Default.List
-                        2 -> Icons.Default.Paid
-                        else -> Icons.Default.Help
-                    }
-                    Tab(
-                        selected = tabIndex == index,
-                        onClick = { tabIndex = index },
-                        content = {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                            ) {
-                                Icon(icon, contentDescription = null)
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(title)
-                            }
-                        }
-                    )
-                }
-            }
-            when (tabIndex) {
-                0 -> PhotosScreen(
-                    photos = uiState.photos,
-                    selectedPhotos = selectedPhotos,
-                    onPhotoClick = { viewModel.togglePhotoSelection(it.id) },
-                )
-                1 -> PlanScreen(
-                    plan = uiState.trip?.plan ?: "",
-                    onPlanChanged = { newPlan -> viewModel.updatePlan(tripId, newPlan) },
-                    isEditMode = isPlanEditMode,
-                    onEditModeChanged = { isPlanEditMode = it }
-                )
-                2 -> PaymentsScreen(
-                    uiState = uiState,
-                    onDeleteExpense = { expenseId -> viewModel.deleteExpense(tripId, expenseId) }
-                )
-            }
+
+        if (isLoading) {
+            LoadingOverlay()
         }
     }
 
@@ -168,7 +198,7 @@ fun TripDetailsScreen(viewModel: TripDetailsViewModel, tripId: String, userEmail
         AddPhotoDialog(
             onDismiss = { showAddPhotoDialog = false },
             onAddPhotos = { imageUris ->
-                viewModel.uploadImagesAndAddPhotos(tripId, imageUris, userEmail, context)
+                viewModel.uploadImagesAndAddPhotos(tripId, imageUris, userName, context)
                 showAddPhotoDialog = false
             }
         )
@@ -177,6 +207,7 @@ fun TripDetailsScreen(viewModel: TripDetailsViewModel, tripId: String, userEmail
     if (showAddExpenseDialog) {
         AddExpenseDialog(
             users = uiState.trip?.users ?: emptyList(),
+            userNames = uiState.userNames,
             onDismiss = { showAddExpenseDialog = false },
             onAddExpense = {
                 viewModel.addExpense(tripId, it)
@@ -188,10 +219,23 @@ fun TripDetailsScreen(viewModel: TripDetailsViewModel, tripId: String, userEmail
     if (showManageUsersDialog) {
         ManageUsersDialog(
             users = uiState.trip?.users ?: emptyList(),
+            userNames = uiState.userNames,
             onDismiss = { showManageUsersDialog = false },
             onAddUser = { email -> viewModel.addUser(tripId, email) },
             onRemoveUser = { email -> viewModel.removeUser(tripId, email) }
         )
+    }
+}
+
+@Composable
+fun LoadingOverlay() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.5f)),
+        contentAlignment = Alignment.Center
+    ) {
+        CircularProgressIndicator()
     }
 }
 
@@ -245,6 +289,7 @@ fun downloadPhotos(context: Context, photos: List<Photo>) {
 @Composable
 fun ManageUsersDialog(
     users: List<String>,
+    userNames: Map<String, String>,
     onDismiss: () -> Unit,
     onAddUser: (String) -> Unit,
     onRemoveUser: (String) -> Unit
@@ -295,7 +340,7 @@ fun ManageUsersDialog(
                 LazyColumn {
                     items(users) { email ->
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(email, modifier = Modifier.weight(1f).padding(vertical = 4.dp))
+                            Text(userNames[email] ?: email, modifier = Modifier.weight(1f).padding(vertical = 4.dp))
                             IconButton(onClick = { onRemoveUser(email) }) {
                                 Icon(Icons.Default.Delete, contentDescription = "Remove User")
                             }
@@ -318,7 +363,7 @@ fun PhotosScreen(photos: List<Photo>, selectedPhotos: Set<String>, onPhotoClick:
     val context = LocalContext.current
     var sortBy by remember { mutableStateOf("Date") }
     var sortDescending by remember { mutableStateOf(true) }
-    var groupByDate by remember { mutableStateOf(false) }
+    var groupBy by remember { mutableStateOf("None") }
 
     val imageLoader = remember(context) {
         ImageLoader.Builder(context)
@@ -342,14 +387,14 @@ fun PhotosScreen(photos: List<Photo>, selectedPhotos: Set<String>, onPhotoClick:
         if (sortDescending) photos.sortedWith(comparator.reversed()) else photos.sortedWith(comparator)
     }
 
-    val groupedPhotos = remember(sortedPhotos, groupByDate) {
-        if (groupByDate) {
-            sortedPhotos.groupBy {
+    val groupedPhotos = remember(sortedPhotos, groupBy) {
+        when (groupBy) {
+            "Date" -> sortedPhotos.groupBy {
                 val sdf = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
                 sdf.format(it.uploadedAt)
             }
-        } else {
-            emptyMap()
+            "Uploaded By" -> sortedPhotos.groupBy { it.uploadedBy }
+            else -> emptyMap()
         }
     }
 
@@ -379,30 +424,41 @@ fun PhotosScreen(photos: List<Photo>, selectedPhotos: Set<String>, onPhotoClick:
                 Icon(if (sortDescending) Icons.Default.ArrowDownward else Icons.Default.ArrowUpward, contentDescription = "Sort Order")
             }
 
-            TextButton(onClick = { groupByDate = !groupByDate }) {
-                Text(if (groupByDate) "Ungroup" else "Group by Date")
+            var groupExpanded by remember { mutableStateOf(false) }
+            Box {
+                TextButton(onClick = { groupExpanded = true }) {
+                    Text(if (groupBy == "None") "Group by" else "Grouped by $groupBy")
+                }
+                DropdownMenu(expanded = groupExpanded, onDismissRequest = { groupExpanded = false }) {
+                    listOf("None", "Date", "Uploaded By").forEach {
+                        DropdownMenuItem(text = { Text(it) }, onClick = {
+                            groupBy = it
+                            groupExpanded = false
+                        })
+                    }
+                }
             }
 
             TextButton(onClick = {
                 sortBy = "Date"
                 sortDescending = true
-                groupByDate = false
+                groupBy = "None"
             }) {
                 Text("Clear")
             }
         }
 
-        if (groupByDate) {
+        if (groupBy != "None") {
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(minSize = 128.dp),
                 modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                groupedPhotos.forEach { (date, photosInGroup) ->
+                groupedPhotos.forEach { (group, photosInGroup) ->
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         Text(
-                            text = date,
+                            text = group,
                             style = MaterialTheme.typography.titleMedium,
                             modifier = Modifier.padding(bottom = 8.dp)
                         )
@@ -450,37 +506,6 @@ fun PhotoItem(photo: Photo, selectedPhotos: Set<String>, onPhotoClick: (Photo) -
                     modifier = Modifier.align(Alignment.Center)
                 )
             }
-        }
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .background(Color.Black.copy(alpha = 0.5f))
-                .padding(4.dp)
-        ) {
-            if (photo.uploadedBy.isNotEmpty()) {
-                Text(
-                    text = "Uploaded by: ${photo.uploadedBy}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.White
-                )
-            }
-            Text(
-                text = "Date: ${SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(photo.uploadedAt)}",
-                style = MaterialTheme.typography.bodySmall,
-                color = Color.White
-            )
-            val sizeInKb = photo.size / 1024
-            val sizeText = if (sizeInKb > 1024) {
-                val sizeInMb = sizeInKb / 1024f
-                "%.2f MB".format(sizeInMb)
-            } else {
-                "$sizeInKb KB"
-            }
-            Text(
-                text = "Size: $sizeText",
-                style = MaterialTheme.typography.bodySmall,
-                color = Color.White
-            )
         }
     }
 }
@@ -600,6 +625,7 @@ fun PlanScreen(
                         addJavascriptInterface(WebAppInterface { activeStyles = it }, "Android")
 
                         webViewClient = object : WebViewClient() {
+                            @Deprecated("shouldOverrideUrlLoading is deprecated.")
                             override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
                                 if (url != null) {
                                     val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
@@ -644,7 +670,7 @@ fun PlanScreen(
                                     if (document.queryCommandState('underline')) styles.push('underline');
 
                                     var highlightColor = document.queryCommandValue('hiliteColor');
-                                    if (highlightColor && highlightColor.toLowerCase() !== 'transparent' && highlight.toLowerCase() !== 'rgba(0, 0, 0, 0)') {
+                                    if (highlightColor && highlightColor.toLowerCase() !== 'transparent' && highlightColor !== 'rgba(0, 0, 0, 0)') {
                                         styles.push('highlight');
                                     }
                                     Android.updateStyle(styles.join(','));
@@ -764,31 +790,31 @@ fun PlanScreen(
 
 
 @Composable
-fun PaymentsScreen(uiState: TripDetailsUiState, onDeleteExpense: (String) -> Unit) {
+fun PaymentsScreen(uiState: TripDetailsUiState, onDeleteExpense: (String) -> Unit, currency: String) {
     var selectedExpense by remember { mutableStateOf<Expense?>(null) }
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        BalanceSummary(uiState.balances)
+        BalanceSummary(uiState.balances, uiState.userNames, currency)
         Spacer(modifier = Modifier.height(16.dp))
         if (uiState.settlements.isNotEmpty()) {
-            DebtsToSettle(uiState.settlements)
+            DebtsToSettle(uiState.settlements, uiState.userNames, currency)
             Spacer(modifier = Modifier.height(16.dp))
         }
         Text("Expenses", style = MaterialTheme.typography.titleMedium)
         LazyColumn(modifier = Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(uiState.expenses) {
-                ExpenseItem(it, onDeleteExpense, onExpenseClick = { selectedExpense = it })
+                ExpenseItem(it, onDeleteExpense, onExpenseClick = { selectedExpense = it }, uiState.userNames, currency)
             }
         }
     }
 
     selectedExpense?.let {
-        ExpenseDetailsDialog(expense = it, onDismiss = { selectedExpense = null })
+        ExpenseDetailsDialog(expense = it, onDismiss = { selectedExpense = null }, userNames = uiState.userNames, currency = currency)
     }
 }
 
 @Composable
-fun DebtsToSettle(settlements: List<Settlement>) {
+fun DebtsToSettle(settlements: List<Settlement>, userNames: Map<String, String>, currency: String) {
     Card(elevation = CardDefaults.cardElevation(4.dp), modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text("Debts to Settle", style = MaterialTheme.typography.titleMedium)
@@ -801,18 +827,18 @@ fun DebtsToSettle(settlements: List<Settlement>) {
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
-                                text = settlement.from,
+                                text = userNames[settlement.from] ?: settlement.from,
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier.weight(1f),
                                 textAlign = TextAlign.End
                             )
                             Icon(
-                                Icons.Default.ArrowForward,
+                                Icons.AutoMirrored.Filled.ArrowForward,
                                 contentDescription = "Owes",
                                 modifier = Modifier.padding(horizontal = 8.dp)
                             )
                             Text(
-                                text = settlement.to,
+                                text = userNames[settlement.to] ?: settlement.to,
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier.weight(1f),
                                 textAlign = TextAlign.Start
@@ -820,7 +846,7 @@ fun DebtsToSettle(settlements: List<Settlement>) {
                         }
                     },
                     trailingContent = {
-                        Text("%,.2f".format(settlement.amount), color = MaterialTheme.colorScheme.primary)
+                        Text("${getCurrencySymbol(currency)}%.2f".format(settlement.amount), color = MaterialTheme.colorScheme.primary)
                     }
                 )
             }
@@ -829,21 +855,21 @@ fun DebtsToSettle(settlements: List<Settlement>) {
 }
 
 @Composable
-fun BalanceSummary(balances: Map<String, Double>) {
+fun BalanceSummary(balances: Map<String, Double>, userNames: Map<String, String>, currency: String) {
     Card(elevation = CardDefaults.cardElevation(4.dp), modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text("Balances", style = MaterialTheme.typography.titleMedium)
             Spacer(modifier = Modifier.height(8.dp))
             balances.forEach { (user, balance) ->
                 val color = if (balance >= 0) Color(0xFF006400) else Color.Red // Darker Green
-                Text("$user: %.2f".format(balance), color = color, fontWeight = FontWeight.Bold)
+                Text("${userNames[user] ?: user}: ${getCurrencySymbol(currency)}%.2f".format(balance), color = color, fontWeight = FontWeight.Bold)
             }
         }
     }
 }
 
 @Composable
-fun ExpenseItem(expense: Expense, onDeleteExpense: (String) -> Unit, onExpenseClick: (Expense) -> Unit) {
+fun ExpenseItem(expense: Expense, onDeleteExpense: (String) -> Unit, onExpenseClick: (Expense) -> Unit, userNames: Map<String, String>, currency: String) {
     Card(
         elevation = CardDefaults.cardElevation(2.dp),
         modifier = Modifier
@@ -853,8 +879,8 @@ fun ExpenseItem(expense: Expense, onDeleteExpense: (String) -> Unit, onExpenseCl
         Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(expense.description, fontWeight = FontWeight.Bold)
-                Text("Amount: ${expense.amount}")
-                Text("Paid by: ${expense.paidBy}")
+                Text("Amount: ${getCurrencySymbol(currency)}${expense.amount}")
+                Text("Paid by: ${userNames[expense.paidBy] ?: expense.paidBy}")
             }
             IconButton(onClick = { onDeleteExpense(expense.id) }) {
                 Icon(Icons.Default.Delete, contentDescription = "Delete Expense")
@@ -864,19 +890,19 @@ fun ExpenseItem(expense: Expense, onDeleteExpense: (String) -> Unit, onExpenseCl
 }
 
 @Composable
-fun ExpenseDetailsDialog(expense: Expense, onDismiss: () -> Unit) {
+fun ExpenseDetailsDialog(expense: Expense, onDismiss: () -> Unit, userNames: Map<String, String>, currency: String) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(expense.description) },
         text = {
             Column {
-                Text("Amount: ${expense.amount}")
-                Text("Paid by: ${expense.paidBy}")
+                Text("Amount: ${getCurrencySymbol(currency)}${expense.amount}")
+                Text("Paid by: ${userNames[expense.paidBy] ?: expense.paidBy}")
                 Text("Added on: ${SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(expense.timestamp as Date)}")
                 Spacer(modifier = Modifier.height(8.dp))
                 Text("Split with:", fontWeight = FontWeight.Bold)
                 expense.splitWith.forEach {
-                    Text(it)
+                    Text(userNames[it] ?: it)
                 }
             }
         },
@@ -944,7 +970,12 @@ private fun createImageUri(context: Context): Uri {
 }
 
 @Composable
-fun AddExpenseDialog(users: List<String>, onDismiss: () -> Unit, onAddExpense: (Expense) -> Unit) {
+fun AddExpenseDialog(
+    users: List<String>,
+    userNames: Map<String, String>,
+    onDismiss: () -> Unit,
+    onAddExpense: (Expense) -> Unit
+) {
     var amount by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
     var expanded by remember { mutableStateOf(false) }
@@ -962,13 +993,13 @@ fun AddExpenseDialog(users: List<String>, onDismiss: () -> Unit, onAddExpense: (
 
                 Text("Paid by:")
                 Box {
-                    Text(paidBy, modifier = Modifier
+                    Text(userNames[paidBy] ?: paidBy, modifier = Modifier
                         .fillMaxWidth()
                         .clickable { expanded = true }
                         .padding(8.dp))
                     DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                         users.forEach { user ->
-                            DropdownMenuItem(text = { Text(user) }, onClick = {
+                            DropdownMenuItem(text = { Text(userNames[user] ?: user) }, onClick = {
                                 paidBy = user
                                 expanded = false
                             })
@@ -979,13 +1010,12 @@ fun AddExpenseDialog(users: List<String>, onDismiss: () -> Unit, onAddExpense: (
                 Spacer(modifier = Modifier.height(8.dp))
                 Text("Split with:")
                 LazyColumn(modifier = Modifier.height(100.dp)) {
-                    items(users) {
-                            user ->
+                    items(users) { user ->
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Checkbox(checked = splitWith.contains(user), onCheckedChange = { isChecked ->
                                 if (isChecked) splitWith.add(user) else splitWith.remove(user)
                             })
-                            Text(user)
+                            Text(userNames[user] ?: user)
                         }
                     }
                 }
@@ -1006,4 +1036,12 @@ fun AddExpenseDialog(users: List<String>, onDismiss: () -> Unit, onAddExpense: (
             }
         }
     )
+}
+
+fun getCurrencySymbol(currencyCode: String): String {
+    return try {
+        Currency.getInstance(currencyCode).symbol
+    } catch (e: Exception) {
+        currencyCode // Fallback to the code if symbol not found
+    }
 }

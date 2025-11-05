@@ -11,8 +11,8 @@
       "type": "SINGLE",
       "filters": [],
       "attributes": [],
-      "versionCode": 2,
-      "versionName": "1.1-Stable-LTE",
+      "versionCode": 20,
+      "versionName": "3.15",
       "outputFile": "app-release.apk"
     }
   ],

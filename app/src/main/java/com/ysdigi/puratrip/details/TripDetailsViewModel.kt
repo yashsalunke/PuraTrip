@@ -9,8 +9,10 @@ import com.ysdigi.puratrip.models.Settlement
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.io.InputStream
+import kotlin.math.min
 
 class TripDetailsViewModel : ViewModel() {
 
@@ -25,16 +27,32 @@ class TripDetailsViewModel : ViewModel() {
     private val _selectedPhotos = MutableStateFlow<Set<String>>(emptySet())
     val selectedPhotos: StateFlow<Set<String>> = _selectedPhotos
 
+    private val _isLoading = MutableStateFlow(false)
+    val isLoading: StateFlow<Boolean> = _isLoading
+
     fun initialize(tripId: String) {
         viewModelScope.launch {
+            _isLoading.value = true
+            val tripData = repository.getTripStream(tripId).first()
+            val photos = repository.getPhotosStream(tripId).first()
+            val expenses = repository.getExpensesStream(tripId).first()
+            val userEmails = tripData?.users ?: emptyList()
+            val userNames = repository.getUserNames(userEmails)
+            val balances = calculateBalances(expenses, userEmails)
+            val settlements = calculateSettlements(balances)
+            _uiState.value = TripDetailsUiState(tripData, photos, expenses, balances, settlements, userNames)
+            _isLoading.value = false
+
             combine(
                 repository.getTripStream(tripId),
                 repository.getPhotosStream(tripId),
                 repository.getExpensesStream(tripId)
             ) { trip, photos, expenses ->
-                val balances = calculateBalances(expenses, trip?.users ?: emptyList())
-                val settlements = calculateSettlements(balances)
-                TripDetailsUiState(trip, photos, expenses, balances, settlements)
+                val updatedUserEmails = trip?.users ?: emptyList()
+                val updatedUserNames = repository.getUserNames(updatedUserEmails)
+                val updatedBalances = calculateBalances(expenses, updatedUserEmails)
+                val updatedSettlements = calculateSettlements(updatedBalances)
+                TripDetailsUiState(trip, photos, expenses, updatedBalances, updatedSettlements, updatedUserNames)
             }.collect { _uiState.value = it }
         }
     }
@@ -59,10 +77,15 @@ class TripDetailsViewModel : ViewModel() {
 
     fun deleteSelectedPhotos(tripId: String) {
         viewModelScope.launch {
-            _selectedPhotos.value.forEach {
-                repository.deletePhoto(tripId, it)
+            _isLoading.value = true
+            try {
+                _selectedPhotos.value.forEach {
+                    repository.deletePhoto(tripId, it)
+                }
+                clearPhotoSelection()
+            } finally {
+                _isLoading.value = false
             }
-            clearPhotoSelection()
         }
     }
 
@@ -94,7 +117,7 @@ class TripDetailsViewModel : ViewModel() {
             val (debtor, debtorAmount) = debtors.entries.first()
             val (creditor, creditorAmount) = creditors.entries.first()
 
-            val amountToSettle = minOf(-debtorAmount, creditorAmount)
+            val amountToSettle = min(-debtorAmount, creditorAmount)
 
             settlements.add(Settlement(from = debtor, to = creditor, amount = amountToSettle))
 
@@ -117,52 +140,89 @@ class TripDetailsViewModel : ViewModel() {
 
     fun updatePlan(tripId: String, plan: String) {
         viewModelScope.launch {
-            repository.updatePlan(tripId, plan)
+            _isLoading.value = true
+            try {
+                repository.updatePlan(tripId, plan)
+            } finally {
+                _isLoading.value = false
+            }
         }
     }
 
     fun addExpense(tripId: String, expense: Expense) {
         viewModelScope.launch {
-            repository.addExpense(tripId, expense)
+            _isLoading.value = true
+            try {
+                repository.addExpense(tripId, expense)
+            } finally {
+                _isLoading.value = false
+            }
         }
     }
 
     fun deleteExpense(tripId: String, expenseId: String) {
         viewModelScope.launch {
-            repository.deleteExpense(tripId, expenseId)
+            _isLoading.value = true
+            try {
+                repository.deleteExpense(tripId, expenseId)
+            } finally {
+                _isLoading.value = false
+            }
         }
     }
 
     fun uploadImagesAndAddPhotos(tripId: String, imageUris: List<Uri>, uploadedBy: String, context: Context) {
         viewModelScope.launch {
             _uploadProgress.value = UploadProgress(0, imageUris.size)
+            _isLoading.value = true
             try {
                 imageUris.forEachIndexed { index, uri ->
-                    val size = context.contentResolver.openInputStream(uri)?.use { it.available().toLong() } ?: 0L
-                    repository.uploadImageAndAddPhoto(tripId, uri, uploadedBy, size)
+                    val inputStream = context.contentResolver.openInputStream(uri)
+                    val bytes = inputStream?.readBytes()
+                    inputStream?.close()
+
+                    if (bytes != null) {
+                        repository.uploadImageAndAddPhoto(tripId, bytes, uploadedBy)
+                    }
                     _uploadProgress.value = UploadProgress(index + 1, imageUris.size)
                 }
             } finally {
                 _uploadProgress.value = null
+                _isLoading.value = false
             }
         }
     }
 
     fun deletePhoto(tripId: String, photoId: String) {
         viewModelScope.launch {
-            repository.deletePhoto(tripId, photoId)
+            _isLoading.value = true
+            try {
+                repository.deletePhoto(tripId, photoId)
+            } finally {
+                _isLoading.value = false
+            }
         }
     }
 
     fun addUser(tripId: String, userEmail: String) {
         viewModelScope.launch {
-            repository.addUserToTrip(tripId, userEmail)
+            _isLoading.value = true
+            try {
+                repository.addUserToTrip(tripId, userEmail)
+            } finally {
+                _isLoading.value = false
+            }
         }
     }
 
     fun removeUser(tripId: String, userEmail: String) {
         viewModelScope.launch {
-            repository.removeUserFromTrip(tripId, userEmail)
+            _isLoading.value = true
+            try {
+                repository.removeUserFromTrip(tripId, userEmail)
+            } finally {
+                _isLoading.value = false
+            }
         }
     }
 }

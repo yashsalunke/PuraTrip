@@ -1,6 +1,5 @@
 package com.ysdigi.puratrip.details
 
-import android.net.Uri
 import android.util.Log
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.ktx.firestore
@@ -11,6 +10,7 @@ import com.google.firebase.storage.ktx.storage
 import com.ysdigi.puratrip.home.Trip
 import com.ysdigi.puratrip.models.Expense
 import com.ysdigi.puratrip.models.Photo
+import com.ysdigi.puratrip.models.User
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -73,6 +73,14 @@ class TripRepository {
         awaitClose { listenerRegistration.remove() }
     }
 
+    suspend fun getUserNames(emails: List<String>): Map<String, String> {
+        if (emails.isEmpty()) {
+            return emptyMap()
+        }
+        val users = db.collection("users").whereIn("email", emails).get().await().toObjects<User>()
+        return users.associate { it.email to it.name }
+    }
+
     suspend fun updatePlan(tripId: String, plan: String) {
         db.collection("trips").document(tripId).update("plan", plan).await()
     }
@@ -97,12 +105,12 @@ class TripRepository {
         }
     }
 
-    suspend fun uploadImageAndAddPhoto(tripId: String, imageUri: Uri, uploadedBy: String, size: Long) {
+    suspend fun uploadImageAndAddPhoto(tripId: String, imageBytes: ByteArray, uploadedBy: String) {
         val fileName = "${UUID.randomUUID()}.jpg"
         val storageRef = storage.reference.child("trips/$tripId/$fileName")
-        storageRef.putFile(imageUri).await()
+        storageRef.putBytes(imageBytes).await()
         val downloadUrl = storageRef.downloadUrl.await().toString()
-        val photo = Photo(url = downloadUrl, uploadedBy = uploadedBy, size = size)
+        val photo = Photo(url = downloadUrl, uploadedBy = uploadedBy, size = imageBytes.size.toLong())
         db.collection("trips").document(tripId).collection("photos").add(photo).await()
         db.collection("trips").document(tripId).update("photoCount", FieldValue.increment(1)).await()
     }

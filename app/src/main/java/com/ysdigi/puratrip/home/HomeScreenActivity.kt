@@ -5,98 +5,168 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.PhotoCamera
-import androidx.compose.material.icons.filled.Receipt
-import androidx.compose.material.icons.filled.AttachMoney
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInClient
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.firebase.auth.ktx.auth
+import com.google.firebase.firestore.ktx.firestore
+import com.google.firebase.ktx.Firebase
+import com.ysdigi.puratrip.R
 import com.ysdigi.puratrip.details.TripDetailsActivity
+import com.ysdigi.puratrip.login.LoginActivity
+import com.ysdigi.puratrip.profile.ProfileActivity
 import com.ysdigi.puratrip.ui.theme.PuraTripTheme
 import kotlinx.coroutines.launch
 
 class HomeScreenActivity : ComponentActivity() {
     private val homeViewModel: HomeViewModel by viewModels()
+    private lateinit var googleSignInClient: GoogleSignInClient
+    private val userName = mutableStateOf("")
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val email = intent.getStringExtra("email") ?: ""
+        val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+            .requestIdToken(getString(R.string.default_web_client_id))
+            .requestEmail()
+            .build()
+        googleSignInClient = GoogleSignIn.getClient(this, gso)
         setContent {
             PuraTripTheme {
-                HomeScreen(homeViewModel, email)
+                HomeScreen(homeViewModel, userName.value, onLogout = {
+                    Firebase.auth.signOut()
+                    googleSignInClient.signOut().addOnCompleteListener {
+                        val intent = Intent(this, LoginActivity::class.java)
+                        startActivity(intent)
+                        finish()
+                    }
+                })
             }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        fetchUserName()
+    }
+
+    private fun fetchUserName() {
+        val user = Firebase.auth.currentUser
+        val db = Firebase.firestore
+        if (user != null) {
+            db.collection("users").document(user.uid).get()
+                .addOnSuccessListener { document ->
+                    if (document != null) {
+                        userName.value = document.getString("name") ?: user.email ?: ""
+                    }
+                }
         }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(viewModel: HomeViewModel, email: String) {
+fun HomeScreen(viewModel: HomeViewModel, userName: String, onLogout: () -> Unit) {
     val trips by viewModel.trips.collectAsState()
+    val isLoading by viewModel.isLoading.collectAsState()
     var showAddTripDialog by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val user = Firebase.auth.currentUser
 
     LaunchedEffect(Unit) {
-        viewModel.listenForTrips(email)
+        if (user != null) {
+            viewModel.listenForTrips(user.email ?: "")
+        }
     }
 
-    Scaffold(
-        topBar = { TopAppBar(title = { Text("Your Trips") }) },
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        floatingActionButton = {
-            FloatingActionButton(onClick = { showAddTripDialog = true }) {
-                Icon(Icons.Default.Add, contentDescription = "Add Trip")
-            }
-        }
-    ) { padding ->
-        if (trips.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                Text("No trips yet!\nClick the ‘+’ button to create one.", textAlign = TextAlign.Center)
-            }
-        } else {
-            LazyColumn(modifier = Modifier.padding(padding).padding(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(trips) { trip ->
-                    TripItem(trip) {
-                        val intent = Intent(context, TripDetailsActivity::class.java)
-                        intent.putExtra("tripId", trip.id)
-                        context.startActivity(intent)
+    Box {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text("Welcome, $userName") },
+                    actions = {
+                        IconButton(onClick = {
+                            context.startActivity(Intent(context, ProfileActivity::class.java))
+                        }) {
+                            Icon(Icons.Default.Person, contentDescription = "Profile")
+                        }
                     }
+                )
+            },
+            snackbarHost = { SnackbarHost(snackbarHostState) },
+            floatingActionButton = {
+                FloatingActionButton(onClick = { showAddTripDialog = true }) {
+                    Icon(Icons.Default.Add, contentDescription = "Add Trip")
                 }
             }
-        }
-
-        if (showAddTripDialog) {
-            AddTripDialog(
-                onDismiss = { showAddTripDialog = false },
-                onAddTrip = { tripName, users ->
-                    showAddTripDialog = false // Close the dialog immediately
-                    val allUsers = users.toMutableList()
-                    if (!allUsers.contains(email)) {
-                        allUsers.add(email)
-                    }
-                    scope.launch {
-                        val success = viewModel.addTrip(tripName, allUsers)
-                        if (!success) {
-                            snackbarHostState.showSnackbar("Failed to create trip. Please try again.")
+        ) { padding ->
+            if (trips.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                    Text("No trips yet!\nClick the ‘+’ button to create one.", textAlign = TextAlign.Center)
+                }
+            } else {
+                LazyColumn(modifier = Modifier.padding(padding).padding(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(trips) { trip ->
+                        TripItem(trip) {
+                            val intent = Intent(context, TripDetailsActivity::class.java)
+                            intent.putExtra("tripId", trip.id)
+                            context.startActivity(intent)
                         }
                     }
                 }
-            )
+            }
+
+            if (showAddTripDialog) {
+                AddTripDialog(
+                    onDismiss = { showAddTripDialog = false },
+                    onAddTrip = { tripName, users ->
+                        showAddTripDialog = false // Close the dialog immediately
+                        val allUsers = users.toMutableList()
+                        if (user != null && !allUsers.contains(user.email)) {
+                            allUsers.add(user.email ?: "")
+                        }
+                        scope.launch {
+                            val success = viewModel.addTrip(tripName, allUsers)
+                            if (!success) {
+                                snackbarHostState.showSnackbar("Failed to create trip. Please try again.")
+                            }
+                        }
+                    }
+                )
+            }
         }
+
+        if (isLoading) {
+            LoadingOverlay()
+        }
+    }
+}
+
+@Composable
+fun LoadingOverlay() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.5f)),
+        contentAlignment = Alignment.Center
+    ) {
+        CircularProgressIndicator()
     }
 }
 

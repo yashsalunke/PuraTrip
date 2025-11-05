@@ -12,11 +12,13 @@ googleFirebaseAppdistribution = "5.1.1"
 compose-bom = "2024.10.00"
 activity-compose = "1.11.0"
 compose-compiler = "1.5.14"
-firebase-bom = "33.3.0"
+firebase-bom = "33.9.0"
 lifecycle-viewmodel-compose = "2.8.4"
 kotlinx-coroutines-play-services = "1.8.1"
 navigation-compose = "2.8.0-beta06"
 coil = "2.6.0"
+play-services-auth = "21.2.0"
+firebase-appcheck-playintegrity = "17.1.1"
 
 [libraries]
 androidx-compose-bom = { module = "androidx.compose:compose-bom", version.ref = "compose-bom" }
@@ -33,6 +35,9 @@ firebase-auth-ktx = { group = "com.google.firebase", name = "firebase-auth-ktx" 
 firebase-firestore-ktx = { group = "com.google.firebase", name = "firebase-firestore-ktx" }
 firebase-database-ktx = { group = "com.google.firebase", name = "firebase-database-ktx" }
 firebase-storage-ktx = { group = "com.google.firebase", name = "firebase-storage-ktx" }
+play-services-auth = { group = "com.google.android.gms", name = "play-services-auth", version.ref = "play-services-auth" }
+firebase-appcheck = { group = "com.google.firebase", name = "firebase-appcheck" }
+firebase-appcheck-playintegrity = { group = "com.google.firebase", name = "firebase-appcheck-playintegrity", version.ref = "firebase-appcheck-playintegrity" }
 
 
 # Boms
@@ -61,4 +66,3 @@ kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 google-gms-google-services = { id = "com.google.gms.google-services", version.ref = "googleGmsGoogleServices" }
 google-firebase-appdistribution = { id = "com.google.firebase.appdistribution", version.ref = "googleFirebaseAppdistribution" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
-

@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -33,7 +35,7 @@ android {
     }
 
     kotlin {
-        jvmToolchain(11)
+        jvmToolchain(17)
     }
 
     buildFeatures {
@@ -44,6 +46,16 @@ android {
     }
 }
 
+val versionPropsFile = file("version.properties")
+val versionProps = Properties()
+versionProps.load(versionPropsFile.inputStream())
+
+val versionCode = versionProps["versionCode"].toString().toInt()
+val versionName = versionProps["versionName"].toString()
+
+android.defaultConfig.versionCode = versionCode
+android.defaultConfig.versionName = versionName
+
 dependencies {
 
     implementation(platform(libs.firebase.bom))
@@ -52,6 +64,9 @@ dependencies {
     implementation(libs.firebase.firestore.ktx)
     implementation(libs.firebase.database.ktx)
     implementation(libs.firebase.storage.ktx)
+    implementation(libs.play.services.auth)
+    implementation(libs.firebase.appcheck)
+    implementation(libs.firebase.appcheck.playintegrity)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.material)
@@ -71,4 +86,22 @@ dependencies {
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
+}
+
+tasks.register("incrementVersion") {
+    doLast {
+        val newVersionCode = versionCode + 1
+        val newVersionName = versionName.split(".").let {
+            val major = it[0].toInt()
+            val minor = it[1].toInt() + 1
+            "$major.$minor"
+        }
+        versionProps["versionCode"] = newVersionCode.toString()
+        versionProps["versionName"] = newVersionName
+        versionProps.store(versionPropsFile.writer(), null)
+    }
+}
+
+tasks.named("preBuild") {
+    dependsOn("incrementVersion")
 }
