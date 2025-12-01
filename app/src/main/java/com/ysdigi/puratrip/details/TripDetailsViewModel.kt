@@ -57,6 +57,17 @@ class TripDetailsViewModel : ViewModel() {
         }
     }
 
+    fun settleUp(tripId: String, from: String, to: String, amount: Double) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            try {
+                repository.addSettlement(tripId, from, to, amount)
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
     fun togglePhotoSelection(photoId: String) {
         val currentSelection = _selectedPhotos.value.toMutableSet()
         if (currentSelection.contains(photoId)) {
@@ -160,6 +171,17 @@ class TripDetailsViewModel : ViewModel() {
         }
     }
 
+    fun updateExpense(tripId: String, expense: Expense) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            try {
+                repository.updateExpense(tripId, expense)
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
     fun deleteExpense(tripId: String, expenseId: String) {
         viewModelScope.launch {
             _isLoading.value = true
@@ -209,6 +231,14 @@ class TripDetailsViewModel : ViewModel() {
             _isLoading.value = true
             try {
                 repository.addUserToTrip(tripId, userEmail)
+                // Refresh the user list
+                val trip = repository.getTripStream(tripId).first()
+                val userEmails = trip?.users ?: emptyList()
+                val userNames = repository.getUserNames(userEmails)
+                _uiState.value = _uiState.value.copy(
+                    trip = trip,
+                    userNames = userNames
+                )
             } finally {
                 _isLoading.value = false
             }

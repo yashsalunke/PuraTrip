@@ -29,14 +29,17 @@ import com.google.firebase.ktx.Firebase
 import com.ysdigi.puratrip.R
 import com.ysdigi.puratrip.details.TripDetailsActivity
 import com.ysdigi.puratrip.login.LoginActivity
+import com.ysdigi.puratrip.models.User
 import com.ysdigi.puratrip.profile.ProfileActivity
 import com.ysdigi.puratrip.ui.theme.PuraTripTheme
 import kotlinx.coroutines.launch
+import java.util.Currency
 
 class HomeScreenActivity : ComponentActivity() {
     private val homeViewModel: HomeViewModel by viewModels()
     private lateinit var googleSignInClient: GoogleSignInClient
     private val userName = mutableStateOf("")
+    private val userCurrency = mutableStateOf("USD")
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -47,7 +50,7 @@ class HomeScreenActivity : ComponentActivity() {
         googleSignInClient = GoogleSignIn.getClient(this, gso)
         setContent {
             PuraTripTheme {
-                HomeScreen(homeViewModel, userName.value, onLogout = {
+                HomeScreen(homeViewModel, userName.value, userCurrency.value, onLogout = {
                     Firebase.auth.signOut()
                     googleSignInClient.signOut().addOnCompleteListener {
                         val intent = Intent(this, LoginActivity::class.java)
@@ -61,17 +64,19 @@ class HomeScreenActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        fetchUserName()
+        fetchUserProfile()
     }
 
-    private fun fetchUserName() {
+    private fun fetchUserProfile() {
         val user = Firebase.auth.currentUser
         val db = Firebase.firestore
         if (user != null) {
             db.collection("users").document(user.uid).get()
                 .addOnSuccessListener { document ->
                     if (document != null) {
-                        userName.value = document.getString("name") ?: user.email ?: ""
+                        val userProfile = document.toObject(User::class.java)
+                        userName.value = userProfile?.name ?: user.email ?: ""
+                        userCurrency.value = userProfile?.currency ?: "USD"
                     }
                 }
         }
@@ -80,7 +85,7 @@ class HomeScreenActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(viewModel: HomeViewModel, userName: String, onLogout: () -> Unit) {
+fun HomeScreen(viewModel: HomeViewModel, userName: String, userCurrency: String, onLogout: () -> Unit) {
     val trips by viewModel.trips.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     var showAddTripDialog by remember { mutableStateOf(false) }
@@ -123,7 +128,7 @@ fun HomeScreen(viewModel: HomeViewModel, userName: String, onLogout: () -> Unit)
             } else {
                 LazyColumn(modifier = Modifier.padding(padding).padding(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(trips) { trip ->
-                        TripItem(trip) {
+                        TripItem(trip, userCurrency) {
                             val intent = Intent(context, TripDetailsActivity::class.java)
                             intent.putExtra("tripId", trip.id)
                             context.startActivity(intent)
@@ -235,7 +240,7 @@ fun AddTripDialog(onDismiss: () -> Unit, onAddTrip: (String, List<String>) -> Un
 }
 
 @Composable
-fun TripItem(trip: Trip, onClick: () -> Unit) {
+fun TripItem(trip: Trip, currency: String, onClick: () -> Unit) {
     ElevatedCard(
         modifier = Modifier
             .fillMaxWidth()
@@ -264,11 +269,19 @@ fun TripItem(trip: Trip, onClick: () -> Unit) {
                     Text(text = "${trip.expenseCount} expenses", style = MaterialTheme.typography.bodyMedium)
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.AttachMoney, contentDescription = "Total Amount", modifier = Modifier.size(16.dp))
+                    Icon(Icons.Default.MonetizationOn, contentDescription = "Total Amount", modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text(text = "$%.2f".format(trip.totalAmount), style = MaterialTheme.typography.bodyMedium)
+                    Text(text = "${getCurrencySymbol(currency)}%.2f".format(trip.totalAmount), style = MaterialTheme.typography.bodyMedium)
                 }
             }
         }
+    }
+}
+
+fun getCurrencySymbol(currencyCode: String): String {
+    return try {
+        Currency.getInstance(currencyCode).symbol
+    } catch (e: Exception) {
+        currencyCode // Fallback to the code if symbol not found
     }
 }

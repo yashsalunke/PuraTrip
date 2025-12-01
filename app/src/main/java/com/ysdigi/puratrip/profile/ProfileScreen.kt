@@ -29,7 +29,7 @@ fun ProfileScreen() {
     val db = Firebase.firestore
     var userProfile by remember { mutableStateOf<User?>(null) }
     var newName by remember { mutableStateOf("") }
-    var newCurrency by remember { mutableStateOf("USD") }
+    var newCurrency by remember { mutableStateOf("INR") }
     val currencies = listOf("USD", "EUR", "GBP", "JPY", "INR")
     var expanded by remember { mutableStateOf(false) }
     val context = LocalContext.current
@@ -43,7 +43,7 @@ fun ProfileScreen() {
                     if (document != null) {
                         userProfile = document.toObject(User::class.java)
                         newName = userProfile?.name ?: ""
-                        newCurrency = userProfile?.currency ?: "USD"
+                        newCurrency = userProfile?.currency ?: "INR"
                     }
                 }
         }

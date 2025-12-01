@@ -15,7 +15,7 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
-import java.util.UUID
+import java.util.*
 
 class TripRepository {
 
@@ -31,7 +31,7 @@ class TripRepository {
                     return@addSnapshotListener
                 }
                 try {
-                    trySend(snapshot?.toObject<Trip>()).isSuccess
+                    trySend(snapshot?.toObject(Trip::class.java)).isSuccess
                 } catch (e: Exception) {
                     Log.e("TripRepository", "Error converting trip", e)
                 }
@@ -48,7 +48,7 @@ class TripRepository {
                     return@addSnapshotListener
                 }
                 try {
-                    trySend(snapshot?.toObjects<Photo>() ?: emptyList()).isSuccess
+                    trySend(snapshot?.toObjects(Photo::class.java) ?: emptyList()).isSuccess
                 } catch (e: Exception) {
                     Log.e("TripRepository", "Error converting photos", e)
                 }
@@ -65,7 +65,7 @@ class TripRepository {
                     return@addSnapshotListener
                 }
                  try {
-                    trySend(snapshot?.toObjects<Expense>() ?: emptyList()).isSuccess
+                    trySend(snapshot?.toObjects(Expense::class.java) ?: emptyList()).isSuccess
                 } catch (e: Exception) {
                     Log.e("TripRepository", "Error converting expenses", e)
                 }
@@ -77,7 +77,7 @@ class TripRepository {
         if (emails.isEmpty()) {
             return emptyMap()
         }
-        val users = db.collection("users").whereIn("email", emails).get().await().toObjects<User>()
+        val users = db.collection("users").whereIn("email", emails).get().await().toObjects(User::class.java)
         return users.associate { it.email to it.name }
     }
 
@@ -93,9 +93,30 @@ class TripRepository {
         ).await()
     }
 
+    suspend fun updateExpense(tripId: String, expense: Expense) {
+        val oldExpense = db.collection("trips").document(tripId).collection("expenses").document(expense.id).get().await().toObject(Expense::class.java)
+        db.collection("trips").document(tripId).collection("expenses").document(expense.id).set(expense).await()
+        if (oldExpense != null) {
+            val amountDifference = expense.amount - oldExpense.amount
+            db.collection("trips").document(tripId).update("totalAmount", FieldValue.increment(amountDifference)).await()
+        }
+    }
+
+    suspend fun addSettlement(tripId: String, from: String, to: String, amount: Double) {
+        val settlementExpense = Expense(
+            amount = amount,
+            description = "Settled up",
+            paidBy = from,
+            splitWith = listOf(to),
+            timestamp = Date(),
+            isSettlement = true
+        )
+        addExpense(tripId, settlementExpense)
+    }
+
     suspend fun deleteExpense(tripId: String, expenseId: String) {
         val expenseDoc = db.collection("trips").document(tripId).collection("expenses").document(expenseId).get().await()
-        val expense = expenseDoc.toObject<Expense>()
+        val expense = expenseDoc.toObject(Expense::class.java)
         db.collection("trips").document(tripId).collection("expenses").document(expenseId).delete().await()
         if (expense != null) {
             db.collection("trips").document(tripId).update(
@@ -117,7 +138,7 @@ class TripRepository {
 
     suspend fun deletePhoto(tripId: String, photoId: String) {
         val photoDoc = db.collection("trips").document(tripId).collection("photos").document(photoId).get().await()
-        val photo = photoDoc.toObject<Photo>()
+        val photo = photoDoc.toObject(Photo::class.java)
         photo?.url?.let {
             try {
                 storage.getReferenceFromUrl(it).delete().await()
