@@ -1,5 +1,7 @@
 # PuraTrip: The Ultimate Collaborative Travel Companion
 
+[**Get it on Google Play**](https://play.google.com/store/apps/details?id=com.ysdigi.puratrip)
+
 PuraTrip is a modern, mobile-first application designed to eliminate the chaos of group travel. It serves as a centralized hub for friends and family to seamlessly organize every aspect of their journey, from collaborative planning and photo sharing to transparent expense tracking and settlement. Built with a focus on user experience and security, PuraTrip ensures that every traveler is on the same page, allowing the group to focus on making memories instead of managing logistics.
 
 ---
